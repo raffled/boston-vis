@@ -1,0 +1,223 @@
+---
+title: 'Assignment2: ggplot2'
+author: "Doug Raffle"
+date: "March 2, 2015"
+output: html_document
+---
+
+Graphically analyze using `ggplot2` the 1970 Boston housing dataset. This dataset consists of 14 variables with 506 observations. The target variable, `medv`, is the median owner-occupied home value in 1000's of dollars. The Boston dataset is found in the `MASS` package. 
+```{r}
+library(MASS)
+data(Boston)
+Boston$chas <-factor(Boston$chas, levels = c(0,1),
+                     labels = c("Not on River", "On River"))
+Boston$rad <-factor(Boston$rad)
+head(Boston)
+```
+
+Fit a linear model to `log(medv)` using select predictors.
+```{r}
+attach(Boston)
+Boston.lm <- lm(log(medv) ~ crim + chas + rad + lstat)
+summary(Boston.lm)
+```
+All variables are highly significant.
+
+See the variable descriptions using `help` in the `MASS` package.
+
+### 1. Plot and discuss the distributions of the log of the median home value (`log(medv)`) faceted by both Charles River (`chas`) and radial highway location (`rad`). Does the log transformation inprove symmetry?
+
+```{r, fig.width = 20, fig.height=10}
+library(ggplot2); library(scales)
+## constant
+f.size <- element_text(size=20)
+this.theme <- theme(strip.text.x = f.size, strip.text.y = f.size,
+                    axis.text.x = f.size, axis.text.y = f.size,
+                    axis.title.x = f.size, axis.title.y = f.size)
+b.width <- function(x) sum(c(-1, 1) * range(x))/12
+medv.hist <- ggplot(Boston, aes(medv)) +
+    facet_grid(chas ~ rad, margins=T) +
+    this.theme
+## plot
+medv.hist + geom_histogram(aes(y = ..density..), binwidth=b.width(medv))
+```
+
+We can see that the median home prices are (mostly) centered around
+\$20,000 across radial highway scores or whether
+they're in riverfront neighborhoods.
+
+As the accessibility of highways increases, we do tend to see more
+right skew, suggesting that proximity to major highways raises the
+value of the homes.  The one exception being that having a radial
+index of 24 lowers the price of the bulk of the homes.  This may
+indicate that the homes with access to the most radial highways are
+the inner-city, which could be confounded with low-income housing.
+
+The fact that there are few riverfront towns (only 36) makes
+patterns hard to detect within the group, but on the aggregate we can
+clearly see that having a house in a riverfront neighborhood does
+introduce higher home values.
+
+Having two large peaks in the riverfront
+homes also suggests that we have two main populations of riverfront
+property -- a poor and a rich section.
+
+As we should expect from financial data, we do see right skew in all
+groups, or at least those with enough members to give the histogram
+some resolution. 
+
+
+```{r, fig.width = 20, fig.height=10}
+fmt <- function(x) format(x, nsmall=1, digits=2)
+medv.hist + geom_histogram(aes(y = ..density..), binwidth=b.width(log(medv))) +
+    scale_x_continuous(trans=log_trans(), name="log(medv)", labels = fmt) +
+    this.theme                 
+```
+
+As is typically seen, using a log-transform does give us mostly
+symmetric distributions. Our overall patterns, however, remain
+intact. Increasing the number of close radial highways generally
+raises the home value (until you have too many), as does being close to
+the river.
+
+### 2. Plot and discuss the boxplot distributions of the log of the median home values (`log(medv)`) by the Charles River (`chas`) and separately by radial highway locations (`rad`). Draw horizontal lines at `mean(log(medv))` in each plot.
+
+```{r}
+plot.box <- function(box){
+    box + 
+    geom_boxplot() +
+    scale_y_continuous(trans=log_trans(), name="log(medv)", labels=fmt) +
+    geom_hline(yintercept=mean(medv)) +
+    theme(legend.position="none")
+}
+plot.box(ggplot(Boston, aes(x=chas, y=medv, fill=chas)))
+```
+
+The distribution of the log-transformed median prices for riverfront homes is higher
+than that of other properties and still skewed slightly to the right.
+
+The non-riverfront properties have more outliers, especially on the
+low side, giving us a slight left skew.
+
+```{r, fig.width=20}
+plot.box(ggplot(Boston, aes(x=rad, y=medv, fill=rad)))
+```
+
+As we saw in the histograms, increasing the radial highway index
+generally increases the median home value.  However, the
+boxplots now reveal a more subtle pattern -- there are two distinct
+increasing trends: from 1 to 3 and from 4 to 8. If the two groups are
+considered as a whole, we see no overall trend. 
+
+We also see that the distribution of median home values is lowest for
+homes with an index of 24.  This group also has the most variability.
+Again, this may point to median house prices in towns in a city center
+being confounded with income. 
+
+### 3. Explore graphically the relationship of crime (`crim`) to the log of the median home values (`log(medv)`) with and without faceting on the radial highway locations (`rad`). What difficulties do you see in using `crim` as a predictor?
+
+```{r, fig.height=10, fig.width=10}
+
+(gp <- ggplot(Boston, aes(y=log(medv), x=crim)) + geom_point() + this.theme)
+gp + facet_wrap(~ rad, ncol=2)
+```
+
+The most major issue that we can see is that crime variability is almost entirely
+concentrated in towns with a highway index of 24.  This, again, points
+us back to the highway index being confounded with inner-city areas,
+which typically have higher crime rates.
+
+Given that this is the case, almost all of the variability in crime is
+contained in `rad=24`, and we'd likely have issues with variance inflation
+and multicollinearity.  In other words, including `crim` and `rad24`
+in the model would lower the significance of both variables.
+
+```{r}
+library(car)
+vif(Boston.lm)
+vif(update(Boston.lm, .~. - crim))
+```
+
+### 4. To explore the the crime variable (`crim`):  
+a.) Plot the density histogram of the log of crime (`log(crim)`). Superimpose a density curve.   
+b.) Plot and discuss the boxplot distribution of crime (`crim`) relative to the radial highway locations (`rad`). Should crime be logged in the linear model?
+
+a.)
+```{r}
+ggplot(Boston, aes(x=crim)) + geom_histogram(aes(y = ..density..),
+                       fill="grey40", colour="black") +
+    scale_x_continuous(trans=log_trans(), labels=fmt) +
+    geom_density(color="red") +
+    this.theme
+```
+
+b.)
+```{r, fig.width=10}
+ggplot(Boston, aes(x=rad, y=crim, fill=rad)) + geom_boxplot() +
+    this.theme
+```
+Again we see significant right skew, as well as a distinct lack of
+variability in all `rad` categories but `rad=24`.
+
+```{r, fig.width=10}
+ggplot(Boston, aes(x=rad, y=crim, fill=rad)) + geom_boxplot() +
+    this.theme + scale_y_continuous(trans=log_trans(), labels=fmt)
+```
+
+The log transform gives us much more symmetric distributions, so using
+it in the linear model will probably give us the best
+results.  Additionally, we see that this adds some variability to
+every category, and the boxes are all much closer in size.
+
+
+### 5. To explore the effect of `lstat` on the model:  
+a) Explore graphically the relationship of percent lower status
+(`lstat`) to the log of the median home (`log(medv)`) values with and
+without faceting on the radial highway locations (`rad`).  
+b) Add linear fits overall and for each facet. Discuss the efficacy of
+the fits and whether or not there appears to be an interaction between
+`lstat` and `rad`.
+
+a)
+```{r}
+(gp <- ggplot(Boston, aes(x=lstat, y=medv)) +
+    geom_point() +
+    scale_y_continuous(trans=log_trans(), labels=fmt) +
+    this.theme)
+```
+
+There seems to be a fairly strong linear relationship between `lstat`
+and the log of `medv` overall.
+
+```{r, fig.width=15, fig.height=10}
+(gp.f <- gp + facet_wrap(~ rad, ncol=2))
+```
+
+A linear pattern still holds within most of the `rad` factors, but
+we can see in others that `log(medv)` is fairly constant across the
+range of `lstat`.
+
+b)
+```{r, fig.width=15, fig.height=10}
+gp + geom_smooth(method=lm, size=1.5)
+```
+```{r, fig.width=15, fig.height=15}
+gp.f + geom_smooth(method=lm, size=1.5)
+```
+
+The slopes are all slightly to moderately negative across most levels
+of `rad`.
+
+Additionally, we can see that the fit is best (lowest residual
+standard error) when `rad=4`, `rad=5`, `rad=6`, and `rad=24`  by the
+width of the confidence bands. However, this may be more a function of
+the small sample size within the other factor levels.
+
+The most interesting feature may be the change in slopes between
+factor levels, epitomized by the relative lack of slope when
+`rad=6`. This is indicative of an interaction between `lstat` and
+`rad`. 
+
+```{r, echo=FALSE}
+detach(Boston)
+```

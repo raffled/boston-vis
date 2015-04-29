@@ -1,0 +1,215 @@
+---
+title: 'Assignment 3: ggvis'
+author: "Doug Raffle"
+date: "April 17, 2015"
+output: html_document
+---
+
+Graphically analyze using `ggvis` the 1970 Boston housing dataset. This dataset consists of 14 variables with 506 observations. The target variable, `medv`, is the median owner-occupied home value in 1000's of dollars. The Boston dataset is found in the `MASS` package. 
+```{r}
+library(MASS)
+data(Boston)
+Boston$chas <-factor(Boston$chas, levels = c(0,1),
+                     labels = c("Not on River", "On River"))
+Boston$rad <-factor(Boston$rad)
+head(Boston)
+```
+
+The fit of a linear model to `log(medv)` using select predictors is:
+```{r label=setup.data}
+attach(Boston)
+Boston.lm <- lm(log(medv) ~ crim + chas + rad + lstat)
+summary(Boston.lm)
+```
+All variables are highly significant.
+
+See the variable descriptions using `help` in the `MASS` package.
+
+In each of the following plots, **label the axes appropriately**.
+
+1. Plot the boxplot distributions of the log of the median home values (`log_medv = log(medv)`) by the Charles River (`chas`) and separately by radial highway locations (`rad`). Draw horizontal lines at `mean(log(medv))` in each plot. Discuss each plot.
+
+```{r label=load.libs}
+library(dplyr, warn.conflicts = FALSE)
+library(ggvis)
+```
+```{r label=boxplot.logmedv.by.chas}
+Boston %>% ggvis(~chas, ~log(medv)) %>% layer_boxplots(fill = ~chas)
+
+mean.coords <- data.frame(y=mean(log(medv)), x=c(levels(Boston$chas)))
+
+Boston %>% ggvis(~chas, ~log(medv)) %>% layer_boxplots(fill = ~chas) %>%
+  layer_paths(data=mean.coords, x = ~x, y = ~y, stroke := "red", strokeWidth := 3) %>%
+  scale_ordinal("x", domain = levels(chas))
+```
+
+The distribution of the log-transformed median prices for riverfront homes is higher
+than that of other properties and skewed slightly to the right.
+
+The non-riverfront properties have more outliers, especially on the
+low side, giving us a slight left skew.
+
+Note that the functionality to add horizontal lines to boxplots
+doesn't seem to be fully implemented yet.
+
+```{r label=boxplot.logmedv.by.rad}
+Boston %>% ggvis(~rad, ~log(medv)) %>% layer_boxplots(fill = ~rad)
+```
+
+Increasing the radial highway index
+generally increases the median home value.  However, the
+boxplots now reveal a more subtle pattern -- there are two distinct
+increasing trends: from 1 to 3 and from 4 to 8. If the two groups are
+considered as a whole, we see no overall trend. 
+
+We also see that the distribution of median home values is lowest for
+homes with an index of 24.  This group also has the most variability.
+Again, this may point to median house prices in towns in a city center
+being confounded with income.
+
+2. Explore graphically the relationship of log crime (`log_crim = log(crim)`) to the log of the median home values (`log_medv`). Add the linear model fit and a smoothed fit with their standard error bands. Do you see any difficulties in using `log_crim` as a predictor? 
+```{r label=transform}
+Boston <- Boston %>%
+    transform(log_crim = log(crim)) %>%
+    transform(log_medv = log(medv))
+```
+```{r label=logmedv.by.logcrim.smoothed}
+Boston %>% ggvis(~log_crim, ~log_medv) %>%
+    layer_smooths(se=TRUE, stroke := "blue") %>%
+    layer_model_predictions(model="lm", se=TRUE, stroke := "red") %>%
+    layer_points()
+```
+The biggest apparent issue with regressing `log_medv` on `log_crim` is
+the non-linear relationship.  When `log_crim` $<1$, we have decent
+linear relationships, albeit with a fair few outliers.  Once we hit
+the subset of `log_crime` $ > 1$, however, the relationship
+dramatically changes and the slope becomes much steeper.  This may
+suggest a confounding variable, or a quadratic relationship overall
+and warrants further investigation.
+
+3. Explore graphically the relationship of log crime (`log_crim`) to the log of the median home values (`log_medv`) as in 2.
+a) Fill (color) the points according to the radial highway locations (`rad`). Group by `rad` and fit linear models. Does there appear to be an interaction between `rad` and `log_crim`? Discuss.
+```{r label=logmedv.by.logcrim.by.rad}
+Boston %>% ggvis(~log_crim, ~log_medv) %>%
+    layer_points(fill = ~rad) %>%
+    group_by(rad) %>%
+    layer_model_predictions(model="lm", se=TRUE, stroke = ~rad)
+```
+
+Coloring points by `rad` illuminates the issues mentioned in
+problem 2.  We can see that most of the slopes are relatively similar,
+with two major exceptions, telling us we have an interaction.
+
+When `rad` $=8$ we actually see a positive linear relationship, which
+was buried in the noise of the full data set above.  This could again
+be caused by yet a fourth variable, or simply noise because of our
+small sample sizes. Subsetting the data and comparing points by
+`chas` offers no explanation.  Either this radial highway score
+naturally changes our relationship, or we have a confounding variable
+other than `chas`.
+
+```{r label=logmedv.by.logcrim.by.rad.subset}
+summary(rad)
+Boston %>% filter(rad == 8) %>%
+    ggvis(~log_crim, ~log_medv) %>%
+    layer_points(fill = ~chas)
+```
+
+Most telling, however, is what we see when `rad` $=24$. This subset
+makes up almost the entirety of the problems discussed in question 2.
+We can see that the change in slope once `log_crim` $> 1$ is in fact
+interaction with `rad` rather than a quadratic relationship.
+
+b) a) Fill (color) the points according to the Charles River (`chas`). Group by `chas` and fit linear models. Does there appear to be an interaction between `chas` and `log_crim`? Discuss.
+```{r label=logmedv.by.logcrim.by.chas}
+Boston %>% ggvis(~log_crim, ~log_medv) %>%
+    layer_points(fill = ~chas) %>%
+    group_by(chas) %>%
+    layer_model_predictions(model="lm", se=TRUE)
+```
+
+We do see some interaction in that the slopes are different, but this
+is hard to say with any certainty since `chas= "On River"` is such a
+small sample size in comparison to its complement.  Overall the slope
+seems to be similar (the orange points fitting well inside of the
+blue), but a few influential outliers in the top-right of the
+plot are likely throwing the slope off.
+
+```{r label=chas.counts}
+summary(chas)
+```
+
+4. To see how the the log crime variable (`crim`) depends on `rad` and `chas`, **make the x-axis scales equal** and:  
+a) Plot the density curve of the log of crime (`log_crim`).
+```{r label=density}
+domain <- range(Boston$log_crim)*1.3
+Boston %>% ggvis(~log_crim) %>%
+    layer_densities() %>%
+    scale_numeric("x", domain = domain, nice = TRUE)
+```
+
+It seems like we have a mixture of two distinct normal distributions
+within the distribution of `log_crim`.
+
+b) Plot the density curve of  log crime (`lob_crim`) grouped by and filled (coloured) by the radial highway locations (`rad`). Discuss differences due highway locations and compare to the plot in a).
+```{r label=density.by.rad}
+Boston %>% ggvis(~log_crim) %>%
+    group_by(rad) %>%
+    layer_densities(fill=~rad) %>%
+    scale_numeric("x", domain = domain, nice = TRUE)
+```
+
+While there is certainly some variation in the distributions when
+`rad` $< 24$, they are mostly centered around $-4 \le$ `log_crim` 
+$< 1$. Again, given the small sizes of most of these subsets
+coming to a concrete conclusion is difficult.
+
+What is distinct, however, is the crime is substantially higher when
+`rad` $= 24$, and that this distribution seems to line up with the
+higher mean of the mixture in the overall distribution.
+
+c) Plot the density curve of  log crime (`lob_crim`) grouped by and filled (coloured) by the Charles River (`chas`). Discuss differences due to Charles River and compare to the plot in a).
+```{r label=density.by.chas}
+Boston %>% ggvis(~log_crim) %>%
+    group_by(chas) %>%
+    layer_densities(fill=~chas) %>%
+    scale_numeric("x", domain = domain, nice = TRUE)
+```
+When separating by `chas`, we see that `"Not on River"` is an almost
+perfect mirror of the aggregate data. `"On River"` is still bimodal,
+but the distinction is much less profound.
+
+5. Explore the effect of `lstat` on the median home (`log_medv`) by:
+a) Plotting percent lower status (`lstat`) relative to the log of the median home (`log_medv`) with points coloured (filled) by the radial highway locations (`rad`). Add the linear fits and standard errors grouped by `rad`. Discuss the efficacy of the fits and whether or not there appears to be an interaction between `lstat` and `rad`.
+```{r label=logmedv.by.lstat.by.rad}
+Boston %>% ggvis(~lstat, ~log_medv) %>%
+    layer_points(fill = ~rad) %>%
+    group_by(rad) %>%
+    layer_model_predictions(model="lm", se=TRUE, stroke = ~rad)
+```
+While we have some slight differences in the fits between `rad`
+levels, most slopes are fairly similar and all show a fairly strong
+negative linear relationship between the variables.
+
+When `rad=6` we can see the slope mitigated, while the opposite occurs
+when `rad=1`. As with other analyses for this dataset, these
+differences should be tempered by the fact that these subsets have
+sizes of $20$ and $24$, respectively. Accounting for an interaction
+may slightly improve our model accuracy, but I'm not sure it'd be
+worth the loss of simplicity.
+
+b)  Plotting percent lower status (`lstat`) relative to the log of the median home (`log_medv`) with points coloured (filled) by the Charles River (`chas`). Add the linear fits and standard errors grouped by `chas`. Discuss the efficacy of the fits and whether or not there appears to be an interaction between `lstat` and `chas`.
+```{r label=logmedv.by.lstat.by.chas}
+Boston %>% ggvis(~lstat, ~log_medv) %>%
+    layer_points(fill = ~chas) %>%
+    group_by(chas) %>%
+    layer_model_predictions(model="lm", se=TRUE, stroke = ~chas)
+```
+
+Here we see almost perfectly parallel slopes.  While accounting for
+`chas` in the model is probably a good idea, there is no significant
+interaction.
+
+```{r label=cleanup, echo=FALSE}
+detach(Boston)
+```
